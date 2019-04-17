@@ -8,6 +8,7 @@ function [s_data] = get_MS(s_data, cfg)
 % subfields necessary
 % cfg.screensize = [1920 1080]; 
 % cfg.pix_per_va = 51;
+% cfg.kernellength = 3;
 
 % step0 convert everything from pixels to va
 xchan_idx = find(ismember(s_data.label, 'X_pos'));
@@ -24,12 +25,28 @@ s_data = local_compute_velocity(s_data, xchan_idx, ychan_idx);
 s_data = local_compute_threshold(s_data);
 
 % step 3 select MS events
-s_data = local_select_MS(s_data);
+s_data = local_select_MS(s_data, cfg);
 
 % step 4 compute angles
-s_data.angle = atan(squeeze(s_data.velocity(:,2,:))./...
+s_data.angle = atan2(squeeze(s_data.velocity(:,2,:)),...
     squeeze(s_data.velocity(:,1,:)));
 
+% OPTIONAL step 5 consider only time of interest
+if isfield(cfg, 'toi')
+    
+    s_data = local_select_toi(s_data, cfg);
+    
+end
+
+% step 6 -added by me-
+% a MS is an event extended in time. But having logical TRUE for each
+% timepoint showing high velocity might be a confounder, especially when we
+% consider the angles: for this reason, we add another subfield containing
+% only the first sample of the saccadic event
+
+swap_single_saccade = diff(s_data.lgcl_mask_MS)==1;
+s_data.lgcl_MS_onset = logical(cat(1, zeros(1,size(swap_single_saccade,2)),...
+    swap_single_saccade));
 
 end
 
@@ -47,7 +64,7 @@ mat_nplus1 = cat(1, s_data.trial(2:end, [xchan_idx, ychan_idx], :),...
 mat_nplus2 = cat(1, s_data.trial(3:end, [xchan_idx, ychan_idx], :),...
     nan(2,2,size(s_data.trial, 3)));
 
-deltaT = s_data.x_time(2)-s_data.x_time(1);
+deltaT = mean(diff(s_data.x_time));
 s_data.velocity = (mat_nplus2 + mat_nplus1 - mat_nminus1 - mat_nminus2)/...
     (6*deltaT);
 
@@ -66,15 +83,69 @@ s_data.MSthresh = repmat(stdxy*6, size(s_data.velocity,1), 1, 1);
 
 end
 
-function s_data = local_select_MS(s_data)
+function s_data = local_select_MS(s_data, cfg)
 
 % apply formula as in engbert 2006
-num1 = squeeze(s_data.velocity(:,1,:));
-num2 = squeeze(s_data.velocity(:,2,:));
-den1 = squeeze(s_data.MSthresh(:,1,:));
-den2 = squeeze(s_data.MSthresh(:,2,:));
+numX = squeeze(s_data.velocity(:,1,:));
+numY = squeeze(s_data.velocity(:,2,:));
+denX = squeeze(s_data.MSthresh(:,1,:));
+denY = squeeze(s_data.MSthresh(:,2,:));
 
-s_data.lgcl_mask_MS = ((num1./den1).^2 + (num2./den2).^2) > 1;
+s_data.lgcl_mask_MS = ((numX./denX).^2 + (numY./denY).^2) > 1;
+
+% noise reduction: 
+% the easiest way to implement a selection criterion is by convolving the
+% logical with a kernel of ones. This allows you to have a fast way of
+% defining MS vs noise
+% open question: which kernel length to use? 3 datapoints -hence variable
+% in time- or a fixed tw? 
+
+lgcl_kernel = ones(1,cfg.kernellength);
+
+% preallocate for speed
+swap_lgcl_conv = nan(length(s_data.lgcl_mask_MS),...
+    size(s_data.lgcl_mask_MS,2));
+
+% start for loop in each trial. Ideally, even this loop could be avoided,
+% maybe, by using 2dconv. Nevertheless I did not understand how it works,
+% and I prefer to stick to the original
+for iTrl = 1:size(s_data.lgcl_mask_MS,2)
+
+    vectConv = conv(s_data.lgcl_mask_MS(:,iTrl), lgcl_kernel)...
+        >=cfg.kernellength;
+    
+    % we have to account for the fact that any value reaching the threshold
+    % shows the "spike" at a delay due to the convolution process. There is
+    % the need to put ones even at the beginning of the MS itself, done by
+    % find
+    spikesP = find(vectConv); deltaTcorrector = -(0:cfg.kernellength-1);
+    fooidx = repmat(spikesP, 1, numel(deltaTcorrector));
+    footmd = repmat(deltaTcorrector, numel(spikesP), 1);
+    rightIdx = unique(fooidx+footmd);
+    vectConv(rightIdx) = true;
+    % cut the last N-1 elements, were N is the kernel length
+    vectConv((end-cfg.kernellength+2):end) = [];
+    swap_lgcl_conv(:,iTrl) = vectConv;
+    
+end
+
+% attach the matrix obtained in this way to the data
+% s_data.old_lgcl_mask = s_data.lgcl_mask_MS;
+s_data.lgcl_mask_MS = logical(swap_lgcl_conv);
+
+end
+
+function s_data = local_select_toi(s_data, cfg)
+
+lgcl_mask_time = s_data.x_time>=min(cfg.toi) & s_data.x_time<=max(cfg.toi);
+
+% now apply this to the subfields of interest
+s_data.trial = s_data.trial(lgcl_mask_time,:,:);
+s_data.velocity = s_data.velocity(lgcl_mask_time,:,:);
+s_data.MSthresh = s_data.MSthresh(lgcl_mask_time,:,:);
+s_data.lgcl_mask_MS = s_data.lgcl_mask_MS(lgcl_mask_time,:,:);
+s_data.angle = s_data.angle(lgcl_mask_time,:);
+s_data.x_time = s_data.x_time(lgcl_mask_time);
 
 end
 
@@ -116,6 +187,6 @@ end
 polarplot(s_data.angle(:,1), sqrt(squeeze(s_data.velocity(:,1,1)).^2 +...
     squeeze(s_data.velocity(:,2,1)).^2))
 
-polarplot(s_data.angle(:,1), ones(3001,2))
+polarhistogram(s_data.angle(s_data.lgcl_mask_MS))
 
 end
