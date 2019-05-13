@@ -27,10 +27,6 @@ s_data = local_compute_threshold(s_data);
 % step 3 select MS events
 s_data = local_select_MS(s_data, cfg);
 
-% step 4 compute angles
-s_data.angle = atan2(squeeze(s_data.velocity(:,2,:)),...
-    squeeze(s_data.velocity(:,1,:)));
-
 % OPTIONAL step 5 consider only time of interest
 if isfield(cfg, 'toi')
     
@@ -44,9 +40,23 @@ end
 % consider the angles: for this reason, we add another subfield containing
 % only the first sample of the saccadic event
 
-swap_single_saccade = diff(s_data.lgcl_mask_MS)==1;
-s_data.lgcl_MS_onset = logical(cat(1, zeros(1,size(swap_single_saccade,2)),...
-    swap_single_saccade));
+swap_single_saccade_ON = diff(s_data.lgcl_mask_MS)==1;
+s_data.lgcl_MS_onset = logical(cat(1, s_data.lgcl_mask_MS(1,:),...
+    swap_single_saccade_ON));
+
+% it has to be noted that the single MS onset might be werid and not than
+% informative. Solution: take even the MS offset, and compute the angle
+% between the onset and offset of MS, on the data and not on the speed.
+swap_single_saccade_OFF = diff(s_data.lgcl_mask_MS) == -1;
+s_data.lgcl_MS_offset = logical(cat(1, swap_single_saccade_OFF, ...
+    s_data.lgcl_mask_MS(end,:))); % instead of assigning 0s, let's assign the
+                                  % last row of the MS, in order to correct
+                                  % for MSs started but not conluded on
+                                  % time
+
+% ... and only now we compute angles
+s_data = local_compute_angles(s_data, xchan_idx, ychan_idx);
+
 
 end
 
@@ -144,49 +154,56 @@ s_data.trial = s_data.trial(lgcl_mask_time,:,:);
 s_data.velocity = s_data.velocity(lgcl_mask_time,:,:);
 s_data.MSthresh = s_data.MSthresh(lgcl_mask_time,:,:);
 s_data.lgcl_mask_MS = s_data.lgcl_mask_MS(lgcl_mask_time,:,:);
-s_data.angle = s_data.angle(lgcl_mask_time,:);
 s_data.x_time = s_data.x_time(lgcl_mask_time);
 
 end
 
-function s_data = local_visualize_selection(s_data)
+function s_data = local_compute_angles(s_data, xchan_idx, ychan_idx)
 
-figure
-for iPlot=1:size(s_data.velocity,3)
+ntrl = length(s_data.trialinfo);
 
-    this_mat_plot = [squeeze(s_data.trial(:,[2 3],iPlot)),...
-        s_data.lgcl_mask_MS(:,iPlot)];
+s_data.MS_features = cell(1, ntrl);
+s_data.lastMS = nan(ntrl, 6);
+ 
+for iTrl = 1:ntrl
     
-    plot(this_mat_plot, 'LineWidth', 2)
-    waitforbuttonpress
-         
+    % onset & offset on X axis
+    x_onsets = s_data.trial(s_data.lgcl_MS_onset(:,iTrl), xchan_idx, iTrl);
+    x_offsets = s_data.trial(s_data.lgcl_MS_offset(:,iTrl), xchan_idx, iTrl);
+    
+    % onset & offset on Y axis
+    y_onsets = s_data.trial(s_data.lgcl_MS_onset(:,iTrl), ychan_idx, iTrl);
+    y_offsets = s_data.trial(s_data.lgcl_MS_offset(:,iTrl), ychan_idx, iTrl);
+    
+    % difference vectors
+    diff_vects = [x_offsets, y_offsets] - [x_onsets, y_onsets];
+    
+    % compute angles
+    these_angles = atan2(diff_vects(:,2), diff_vects(:,1));
+    
+    % store time -saccade offset?
+    these_Ts = s_data.x_time(s_data.lgcl_MS_offset(:,iTrl));
+    
+    % small summary matrix of MS direction and T. only last saccade will be
+    % taken into account 
+    % colord = 1) Time, 2) x onset, 3) y onset, 4) x offset, 5) y offset, 6) angles
+    summat = [these_Ts, x_onsets, y_onsets, x_offsets, y_offsets,...
+        these_angles]; 
+    
+    s_data.MS_features{iTrl} = summat;
+    
+    if ~isempty(summat)
+
+        s_data.lastMS(iTrl,:) = summat(end,:);
+    
+    else
+        
+        s_data.lastMS(iTrl, :) = nan;
+        
+    end
+    
 end
 
 
-%% scatterplot single MSs
-
-figure
-for iPlot=1:size(s_data.velocity,3)
-
-    velX = squeeze(s_data.velocity(:,1,iPlot));
-    velY = squeeze(s_data.velocity(:,2,iPlot));
-
-    MSs_ev_X = velX;
-    MSs_ev_X(~s_data.lgcl_mask_MS(:,iPlot))= nan;
-    MSs_ev_Y = velY;
-    MSs_ev_Y(~s_data.lgcl_mask_MS(:,iPlot))= nan;
-
-    plot(velX, velY, 'k'); hold on
-    plot(MSs_ev_X, MSs_ev_Y, 'r', 'LineWidth', 4)
-    hold off
-    
-    waitforbuttonpress
-    
 end
 
-polarplot(s_data.angle(:,1), sqrt(squeeze(s_data.velocity(:,1,1)).^2 +...
-    squeeze(s_data.velocity(:,2,1)).^2))
-
-polarhistogram(s_data.angle(s_data.lgcl_mask_MS))
-
-end
