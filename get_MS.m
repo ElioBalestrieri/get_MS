@@ -164,7 +164,8 @@ ntrl = length(s_data.trialinfo);
 
 s_data.MS_features = cell(1, ntrl);
 s_data.lastMS = nan(ntrl, 6);
- 
+s_data.avgMS = nan(ntrl, 3);
+
 for iTrl = 1:ntrl
     
     % onset & offset on X axis
@@ -177,6 +178,15 @@ for iTrl = 1:ntrl
     
     % difference vectors
     diff_vects = [x_offsets, y_offsets] - [x_onsets, y_onsets];
+    
+    % compute "Average MS" as the sum of MS vectors, and compute angles.
+    % Then store it in a corresponding subfield in s_data.
+    res_vect = sum(diff_vects,1);
+    if ~isempty(res_vect)     
+        angle_avg = atan2(res_vect(2), res_vect(1)); % Y before, x after
+        % colord: 1) angle, 2) X, 3) Y
+        s_data.avgMS(iTrl, :) = [angle_avg, res_vect];
+    end
     
     % compute angles
     these_angles = atan2(diff_vects(:,2), diff_vects(:,1));
