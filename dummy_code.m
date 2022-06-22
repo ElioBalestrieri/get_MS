@@ -15,11 +15,11 @@ filelist(1) = []; % linux specific(?)
 
 % MS
 cfg=[];
-cfg.kernellength = 3;
-cfg.noisesuppress = true;
-cfg.lambda = 5;
-cfg.labelMS = {[-1, -.1], [.1, 1]};
-cfg.toi = [-200, 1500];
+cfg.kernellength = 3; % minimal MS duration (in data samples)
+cfg.noisesuppress = true; % default true, check help
+cfg.lambda = 5; % default 5, check help
+cfg.labelMS = {[-1, -.1], [.1, 1]}; % cosine value for left vs right definition, check help
+cfg.toi = [-200, 1500]; % time of interest
 
 % MS rate
 cfg_MSrate = [];

@@ -15,7 +15,8 @@ function [MSstruct, s_data] = get_MS(EEG, cfg)
 %
 % MANDATORY
 % cfg.kernellength = number of contiguous datapoints necessary for defining
-%                    a MS. 2-3;
+%                    a MS. Dependent on your sampling frequency, but a duration of 
+%                    ~12 ms (3 datapoints at 256 Hz) is recommended.
 % cfg.lambda = denominator in velocity formula. Suggested value:5 
 %              after Engbert and Mergenthaler 2006 PNAS;
 %
@@ -35,6 +36,9 @@ function [MSstruct, s_data] = get_MS(EEG, cfg)
 %
 % cfg.smoothkernellength = length of the gaussian window for signal
 %                          smoothing (default = 5);
+% 
+% cfg.detrend = remove drift by detrending trialwise signal along both the x
+%               and the y axis. Since still a beta, set default to "false"
 
 
 %% convert input
