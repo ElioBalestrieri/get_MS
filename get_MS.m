@@ -38,7 +38,11 @@ function [MSstruct, s_data] = get_MS(EEG, cfg)
 %                          smoothing (default = 5);
 % 
 % cfg.detrend = remove drift by detrending trialwise signal along both the x
-%               and the y axis. Since still a beta, set default to "false"
+%               and the y axis. Since still a beta, default = false;
+%
+% cfg.maxamp = upper eye movement amplitude that separates MS from proper
+%              saccades. scalar (in the unit used in the input data) or
+%              false. default = false;
 
 
 %% convert input
@@ -67,7 +71,7 @@ lambda = cfg.lambda;
 xchan_idx = 1;
 ychan_idx = 2;
 
-% define defaults for smoothing
+% define cfg defaults 
 if ~isfield(cfg, 'noisesuppress')
     cfg.noisesuppress = true;
 end
@@ -78,6 +82,10 @@ end
 
 if ~isfield(cfg, 'detrend')
     cfg.detrend = false;
+end
+
+if ~isfield(cfg, 'maxamp')
+    cfg.maxamp = false;
 end
 
 
@@ -125,6 +133,11 @@ s_data.lgcl_MS_offset = logical(cat(1, swap_single_saccade_OFF, ...
                                     % for MSs started but not conluded on
                                     % time
 
+% compute MS amplitude (and remove events exceeding threshold, if threshold
+% specified in cfg)
+s_data = local_getMS_amplitude(s_data, cfg);
+
+                                    
 % ... and only now we compute angles
 s_data = local_compute_angles(s_data, xchan_idx, ychan_idx);
 
@@ -294,6 +307,87 @@ s_data.lgcl_mask_MS = logical(swap_lgcl_conv);
 
 end
 
+function s_data = local_getMS_amplitude(s_data, cfg)
+
+x = squeeze(s_data.trial(:, 1, :)); y = squeeze(s_data.trial(:, 2, :));
+
+xon = x(s_data.lgcl_MS_onset);
+xoff = x(s_data.lgcl_MS_offset);
+
+yon = y(s_data.lgcl_MS_onset);
+yoff = y(s_data.lgcl_MS_offset);
+
+dist_x = xoff-xon;
+dist_y = yoff-yon;
+
+amp = abs(dist_x + 1i*dist_y);
+idx_on = find(s_data.lgcl_MS_onset);
+idx_off = find(s_data.lgcl_MS_offset);
+
+
+if cfg.maxamp
+    
+     exceed_maxamp = find(amp>cfg.maxamp);     
+     prune_on = idx_on(exceed_maxamp);
+     prune_off = idx_off(exceed_maxamp);
+     
+     s_data.lgcl_MS_onset(prune_on) = false;
+     s_data.lgcl_MS_offset(prune_off) = false;
+     
+     for iTrlExceed = 1:length(prune_on)
+         
+         this_onidx = prune_on(iTrlExceed);
+         this_offidx = prune_off(iTrlExceed);
+         
+         s_data.lgcl_mask_MS(this_onidx:this_offidx) = false;
+         
+     end
+     
+     idx_off(exceed_maxamp) = [];
+     idx_on(exceed_maxamp) = [];
+     amp(exceed_maxamp) = [];
+     
+end
+
+% there might also be the case of amp = 0 (?);
+% repeat the above procedure outside if statement, to always get ri d of
+% those cases.
+
+ zeroamp = find(amp==0);     
+ prune_on = idx_on(zeroamp);
+ prune_off = idx_off(zeroamp);
+
+ s_data.lgcl_MS_onset(prune_on) = false;
+ s_data.lgcl_MS_offset(prune_off) = false;
+
+ for iTrlExceed = 1:length(prune_on)
+
+     this_onidx = prune_on(iTrlExceed);
+     this_offidx = prune_off(iTrlExceed);
+
+     s_data.lgcl_mask_MS(this_onidx:this_offidx) = false;
+
+ end
+
+ idx_off(zeroamp) = [];
+ amp(zeroamp) = [];
+
+
+
+
+
+
+s_data.mat_amp = zeros(size(s_data.lgcl_MS_offset));
+s_data.mat_amp(idx_off) = amp;
+
+
+foo = 1;
+
+
+
+
+end
+
 function s_data = local_select_toi(s_data, cfg)
 
 lgcl_mask_time = s_data.x_time>=min(cfg.toi) & s_data.x_time<=max(cfg.toi);
@@ -309,13 +403,13 @@ end
 
 function s_data = local_compute_angles(s_data, xchan_idx, ychan_idx)
 
-ntrl = length(s_data.trialinfo);
+ntrl = size(s_data.trial, 3);
 
 % number of eyetracked is given by the number of x channels
 neye = numel(xchan_idx);
 
 s_data.MS_features = cell(neye, ntrl);
-s_data.lastMS = nan(ntrl, 6, neye);
+s_data.lastMS = nan(ntrl, 7, neye);
 s_data.avgMS = nan(ntrl, 3, neye);
 [s_data.T_onoff, s_data.MS_angles] = deal(cell(ntrl, neye));
 s_data.angle_maskMS = nan(length(s_data.x_time), ntrl);
@@ -365,13 +459,16 @@ for iEye = 1:neye
         % for each mMS
         onset_offset = [s_data.x_time(s_data.lgcl_MS_onset(:,iTrl, iEye)), ...
             s_data.x_time(s_data.lgcl_MS_offset(:,iTrl, iEye))];
-
-        % small summary matrix of MS direction and T. only last saccade will be
-        % taken into account 
-        % colord = 1) Time, 2) x onset, 3) y onset, 4) x offset, 5) y offset, 6) angles
         
+        % MS amplitudes
+        this_trl_amps = s_data.mat_amp(:, iTrl);
+        this_trl_amps = this_trl_amps(this_trl_amps~=0);
+
+        % small summary matrix of MS direction and T. 
+        % colord = 1) Time, 2) x onset, 3) y onset, 4) x offset, 5) y
+        % offset, 6) angles, 7) amplitude       
         summat = [these_Ts, x_onsets, y_onsets, x_offsets, y_offsets,...
-            these_angles]; 
+            these_angles, this_trl_amps]; 
 
         % attech to the structure
         s_data.MS_features{iEye, iTrl} = summat;

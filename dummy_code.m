@@ -7,7 +7,10 @@ addpath('/home/elio/toolboxes/eeglab2021.1')
 eeglab nogui
 
 % get filelist (in case of loop)
-filelist = strsplit(ls('/home/elio/PhD/alphaReturn/fulldata/*.set'));
+% filelist = strsplit(ls('/home/elio/PhD/alphaReturn/fulldata/*.set'));
+
+filelist = strsplit(ls('/home/elio/PhD/EyeTS/testdata/*.set'));
+
 filelist = sort(filelist); 
 filelist(1) = []; % linux specific(?)
 
@@ -19,7 +22,10 @@ cfg.kernellength = 3; % minimal MS duration (in data samples)
 cfg.noisesuppress = true; % default true, check help
 cfg.lambda = 5; % default 5, check help
 cfg.labelMS = {[-1, -.1], [.1, 1]}; % cosine value for left vs right definition, check help
-cfg.toi = [-200, 1500]; % time of interest
+cfg.toi = [-200, 1000]; % time of interest
+cfg.smoothkernellength = 5;
+cfg.maxamp = 80;
+
 
 % MS rate
 cfg_MSrate = [];
@@ -28,14 +34,16 @@ cfg_MSrate.movingwin = .1;
 
 %% apply MS function
 
-
 % load EEG dat
-nsubjs = length(filelist); isubj = 16;
+nsubjs = length(filelist); isubj = 2;
 fname = filelist{isubj};
 EEG = pop_loadset(fname);
 
 % compute MS
 [MSstruct, s_data] = get_MS(EEG, cfg);
+plot_summary(s_data)
+
+%%
 
 % define experimental condtions (based on trialinfo)
 % obviously experiment-specific 
@@ -55,7 +63,13 @@ mask_long_right = longSOAs_mask & right_cue_mask;
 MSrate_L = get_MSrate_EXPcondition(s_data, mask_long_left, cfg_MSrate);
 MSrate_R = get_MSrate_EXPcondition(s_data, mask_long_right, cfg_MSrate);
 
-plot_summary(s_data)
+
+
+%% try to understand the issue with tilt
+
+angle_vect = cat(1, s_data.MS_angles{:});
+
+figure; histogram(angle_vect)
 
 
 
